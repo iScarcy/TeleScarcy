@@ -1,10 +1,13 @@
 using System.Text;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
-namespace TeleScarcy;
+
 using Telegram.Bot;
 using Telegram.Bot.Types;
+using TeleScarcy.Models;
+using Newtonsoft.Json;
 
+namespace TeleScarcy;
 public sealed class QueuedHostedService : BackgroundService
 {
     private readonly IBackgroundTaskQueue _taskQueue;
@@ -17,6 +20,7 @@ public sealed class QueuedHostedService : BackgroundService
     private IModel channel;
     private string TelegramAccessTocken;
     private string TelegramChatId;
+   
     public QueuedHostedService(
         IBackgroundTaskQueue taskQueue,
         ILogger<QueuedHostedService> logger) 
@@ -48,8 +52,7 @@ public sealed class QueuedHostedService : BackgroundService
 
             channel.BasicQos(prefetchSize: 0, prefetchCount: 1, global: false);
             consumer = new EventingBasicConsumer(channel);
-            TelegramAccessTocken = "5945035651:AAH_4sACRXJgOhqySEDatrE-ZBN2tH8Jbn0";
-            TelegramChatId = "1234647619";
+            
         }
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
@@ -60,16 +63,16 @@ public sealed class QueuedHostedService : BackgroundService
                consumer.Received += async (sender, ea) =>
                 {
                     var body = ea.Body.ToArray();
-                    var message = Encoding.UTF8.GetString(body);
+                    TeleMessage receivedMessage = JsonConvert.DeserializeObject<TeleMessage>(Encoding.UTF8.GetString(body));
                     
-                    var botClient = new TelegramBotClient(TelegramAccessTocken);
+                    var botClient = new TelegramBotClient(receivedMessage.TelegramAccessTocken);
 
                     Message teleMessage = await botClient.SendTextMessageAsync(
-                    chatId: TelegramChatId,
-                    text: message);
+                    chatId: receivedMessage.TelegramChatId,
+                    text: receivedMessage.Message);
                     
                       _logger.LogInformation(
-                        $"Inviato messaggio telegram con il seguente testo: {message}");
+                        $"Inviato messaggio telegram con il seguente testo: {receivedMessage.Message}");
 
                     // Note: it is possible to access the channel via
                     //       ((EventingBasicConsumer)sender).Model here
