@@ -21,13 +21,26 @@ public sealed class QueuedHostedService : BackgroundService
         IBackgroundTaskQueue taskQueue,
         ILogger<QueuedHostedService> logger) 
         {
-            _taskQueue = taskQueue;
-             _logger = logger;
+         _taskQueue = taskQueue;
+          _logger = logger;
          _logger = logger;
-        factory = new ConnectionFactory() { HostName = "scarcybox", Port = 5672, UserName = "scarcy", Password = "forzaJuve123" };
-        connection = factory.CreateConnection();
-        channel = connection.CreateModel();
-           channel.QueueDeclare(queue: "TeleScarcy_queue",
+
+        var configBuilder = new ConfigurationBuilder().
+        AddJsonFile("appsettings.json").Build();
+
+        var configRabbitSection = configBuilder.GetSection("RabbitSettings");
+        var hostNameRabbit = configRabbitSection["HostName"].ToString();
+        var portRabbit = int.Parse(configRabbitSection["Port"]); 
+        var userNameRabbit =  configRabbitSection["UserName"].ToString(); 
+        var passwordRabbit =  configRabbitSection["Password"].ToString();
+        var queueEvent = configRabbitSection["EventQueue"].ToString();    
+
+        _logger.LogInformation($"hostNameRabbit: {hostNameRabbit}, portRabbit: {portRabbit}, userNameRabbit: {userNameRabbit}, passwordRabbit: {passwordRabbit}, queueEvent: {queueEvent} ");
+
+         factory = new ConnectionFactory() { HostName = hostNameRabbit, Port = portRabbit, UserName = userNameRabbit, Password = passwordRabbit, VirtualHost = "/" };
+         connection = factory.CreateConnection();
+         channel = connection.CreateModel();
+           channel.QueueDeclare(queue: queueEvent,
                                  durable: true,
                                  exclusive: false,
                                  autoDelete: false,
@@ -63,9 +76,13 @@ public sealed class QueuedHostedService : BackgroundService
                     channel.BasicAck(deliveryTag: ea.DeliveryTag, multiple: false);
                 };
               
-               
+                var configBuilder = new ConfigurationBuilder().
+                    AddJsonFile("appsettings.json").Build();
+
+                var configRabbitSection = configBuilder.GetSection("RabbitSettings");
+                var queueEvent = configRabbitSection["EventQueue"].ToString();    
             
-              channel.BasicConsume(queue: "TeleScarcy_queue",
+              channel.BasicConsume(queue: queueEvent,
                                     autoAck: false,
                                     consumer: consumer); 
 
