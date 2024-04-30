@@ -6,6 +6,7 @@ using Telegram.Bot;
 using Telegram.Bot.Types;
 using TeleScarcy.Models;
 using Newtonsoft.Json;
+using TeleScarcy.Configurations;
 
 namespace TeleScarcy;
 public sealed class QueuedHostedService : BackgroundService
@@ -32,19 +33,28 @@ public sealed class QueuedHostedService : BackgroundService
         var configBuilder = new ConfigurationBuilder().
         AddJsonFile("appsettings.json").Build();
 
+        
+        var rabbitSettings = new RabbitSettings();
+
         var configRabbitSection = configBuilder.GetSection("RabbitSettings");
-        var hostNameRabbit = configRabbitSection["HostName"].ToString();
-        var portRabbit = int.Parse(configRabbitSection["Port"]); 
-        var userNameRabbit =  configRabbitSection["UserName"].ToString(); 
-        var passwordRabbit =  configRabbitSection["Password"].ToString();
-        var queueEvent = configRabbitSection["EventQueue"].ToString();    
 
-        _logger.LogInformation($"hostNameRabbit: {hostNameRabbit}, portRabbit: {portRabbit}, userNameRabbit: {userNameRabbit}, passwordRabbit: {passwordRabbit}, queueEvent: {queueEvent} ");
+        configRabbitSection.Bind(rabbitSettings);
+    
 
-         factory = new ConnectionFactory() { HostName = hostNameRabbit, Port = portRabbit, UserName = userNameRabbit, Password = passwordRabbit, VirtualHost = "/" };
+        _logger.LogInformation($"hostNameRabbit: {rabbitSettings.HostName}, portRabbit: {rabbitSettings.Port}, userNameRabbit: {rabbitSettings.UserName}, passwordRabbit: {rabbitSettings.Password}, queueEvent: {rabbitSettings.EventQueue} ");
+
+         factory = new ConnectionFactory() 
+         { 
+            HostName = rabbitSettings.HostName, 
+            Port = rabbitSettings.Port, 
+            UserName = rabbitSettings.UserName, 
+            Password = rabbitSettings.Password, 
+            VirtualHost = "/" 
+        };
+
          connection = factory.CreateConnection();
          channel = connection.CreateModel();
-           channel.QueueDeclare(queue: queueEvent,
+           channel.QueueDeclare(queue: rabbitSettings.EventQueue,
                                  durable: true,
                                  exclusive: false,
                                  autoDelete: false,
@@ -57,18 +67,26 @@ public sealed class QueuedHostedService : BackgroundService
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        var configBuilder = new ConfigurationBuilder().
+                    AddJsonFile("appsettings.json").Build();
+
         _logger.LogInformation(
             $"{nameof(QueuedHostedService)} is running.{Environment.NewLine}");
 
+            var teleSettings = configBuilder.GetSection("TeleSettings").Get<List<TeleSettings>>();  
+           
                consumer.Received += async (sender, ea) =>
                 {
                     var body = ea.Body.ToArray();
                     TeleMessage receivedMessage = JsonConvert.DeserializeObject<TeleMessage>(Encoding.UTF8.GetString(body));
-                    
-                    var botClient = new TelegramBotClient(receivedMessage.TelegramAccessTocken);
+                    var ts = teleSettings.Where(x => x.Key == receivedMessage.Key);
+                    if(ts.Any()){
+                        
+                    TeleSettings? tsSelected = ts.FirstOrDefault();    
+                    var botClient = new TelegramBotClient(tsSelected.TelegramAccessTocken);
 
                     Message teleMessage = await botClient.SendTextMessageAsync(
-                    chatId: receivedMessage.TelegramChatId,
+                    chatId: tsSelected.TelegramChatId,
                     text: receivedMessage.Message);
                     
                       _logger.LogInformation(
@@ -77,10 +95,14 @@ public sealed class QueuedHostedService : BackgroundService
                     // Note: it is possible to access the channel via
                     //       ((EventingBasicConsumer)sender).Model here
                     channel.BasicAck(deliveryTag: ea.DeliveryTag, multiple: false);
+
+                       
+                    }else{
+                     throw new Exception($"Non trovate chiave configurazioni per la chiave '{receivedMessage.Key}'");
+                    }
                 };
               
-                var configBuilder = new ConfigurationBuilder().
-                    AddJsonFile("appsettings.json").Build();
+                
 
                 var configRabbitSection = configBuilder.GetSection("RabbitSettings");
                 var queueEvent = configRabbitSection["EventQueue"].ToString();    
